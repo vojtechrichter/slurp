@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Slurp\Values;
 
-final class _Dictionairy
+final class _Dictionary
 {
 
 }

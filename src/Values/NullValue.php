@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Slurp\Values;
 
-final class _Reference
+enum NullValue implements Value
 {
+    case Instance;
 }

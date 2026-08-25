@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Slurp\CharacterClasses\Whitespace;
+namespace Slurp\Values;
 
-abstract class AbstractWhitespace
+final readonly class IntegerValue implements Value
 {
     public function __construct(
         public int $value,

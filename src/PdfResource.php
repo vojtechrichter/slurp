@@ -4,25 +4,26 @@ declare(strict_types=1);
 
 namespace Slurp;
 
-final readonly class PdfResource implements \Stringable
+final readonly class PdfResource
 {
-    public function __construct(
-        private(set) string $filename,
+    private function __construct(
+        public string $filename,
+        private string $content,
     ) {
     }
 
     public static function from(string $filename): self
     {
-        return new self($filename);
+        $content = @file_get_contents($filename);
+        if ($content === false) {
+            throw new \RuntimeException(sprintf('Failed to read file "%s"', $filename));
+        }
+
+        return new self($filename, $content);
     }
 
     public function getRawContent(): string
     {
-        return file_get_contents($this->filename);
-    }
-
-    public function __toString(): string
-    {
-        return $this->getRawContent();
+        return $this->content;
     }
 }

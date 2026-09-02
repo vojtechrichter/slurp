@@ -40,13 +40,63 @@ final class Lexer
 
     private function scanToken(): Token
     {
-        // TODO: branch on the current byte to scan real tokens (names,
-        // numbers, strings, delimiters, keywords)
         $start = $this->offset;
         $byte = $this->content[$this->offset];
+
+        $single = match ($byte) {
+            '[' => Type::ArrOpen,
+            ']' => Type::ArrClose,
+            '{' => Type::BraceOpen,
+            '}' => Type::BraceClose,
+            default => null,
+        };
+
+        if ($single !== null) {
+            $this->offset++;
+
+            return new Token($single, $byte, $start);
+        }
+
+        $pair = substr($this->content, $start, 2);
+
+        if ($pair === '<<') {
+            $this->offset += 2;
+
+            return new Token(Type::DictOpen, $pair, $start);
+        }
+
+        if ($pair === '>>') {
+            $this->offset += 2;
+
+            return new Token(Type::DictClose, $pair, $start);
+        }
+
+        if (CharacterClass::isRegular($byte)) {
+            $run = $this->scanRegularRun();
+
+            return new Token(self::isNumeric($run) ? Type::Num : Type::Keyword, $run, $start);
+        }
+
+        // TODO: names, strings
         $this->offset++;
 
         return new Token(Type::Keyword, $byte, $start);
+    }
+
+    private function scanRegularRun(): string
+    {
+        $start = $this->offset;
+
+        while (!$this->isAtEnd() && CharacterClass::isRegular($this->content[$this->offset])) {
+            $this->offset++;
+        }
+
+        return substr($this->content, $start, $this->offset - $start);
+    }
+
+    private static function isNumeric(string $run): bool
+    {
+        return preg_match('/^[+-]?(\d+\.?\d*|\.\d+)$/', $run) === 1;
     }
 
     private function skipComment(): string

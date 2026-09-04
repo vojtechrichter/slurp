@@ -7,6 +7,7 @@ namespace Slurp\Tests;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Slurp\Lexer;
+use Slurp\LexerException;
 use Slurp\Tokens\Type;
 
 final class LexerTest extends TestCase
@@ -191,9 +192,131 @@ final class LexerTest extends TestCase
         } while ($token->type !== Type::Eof);
 
         self::assertSame(
-            [Type::Num, Type::Num, Type::Keyword, Type::DictOpen, Type::Keyword, Type::Keyword, Type::Keyword, Type::Keyword, Type::DictClose, Type::Keyword, Type::Eof],
+            [Type::Num, Type::Num, Type::Keyword, Type::DictOpen, Type::Name, Type::Name, Type::DictClose, Type::Keyword, Type::Eof],
             $types,
         );
-        self::assertSame(['1', '0', 'obj', '<<', '/', 'Type', '/', 'Page', '>>', 'endobj', ''], $lexemes);
+        self::assertSame(['1', '0', 'obj', '<<', 'Type', 'Page', '>>', 'endobj', ''], $lexemes);
+    }
+
+    public function testScansName(): void
+    {
+        $token = new Lexer('/Type ')->next();
+
+        self::assertSame(Type::Name, $token->type);
+        self::assertSame('Type', $token->lexeme);
+        self::assertSame(0, $token->offset);
+    }
+
+    public function testNameStopsAtDelimiter(): void
+    {
+        $lexer = new Lexer('/Type/Page>>');
+
+        self::assertSame('Type', $lexer->next()->lexeme);
+        self::assertSame('Page', $lexer->next()->lexeme);
+        self::assertSame(Type::DictClose, $lexer->next()->type);
+    }
+
+    public function testBareSlashIsEmptyName(): void
+    {
+        $token = new Lexer('/ ')->next();
+
+        self::assertSame(Type::Name, $token->type);
+        self::assertSame('', $token->lexeme);
+    }
+
+    public function testNameDecodesHexEscapes(): void
+    {
+        self::assertSame('A B#', new Lexer('/A#20B#23')->next()->lexeme);
+    }
+
+    public function testNameKeepsHashWithoutTwoHexDigits(): void
+    {
+        self::assertSame('a#b#1', new Lexer('/a#b#1')->next()->lexeme);
+    }
+
+    public function testScansLiteralString(): void
+    {
+        $token = new Lexer('(Hello) ')->next();
+
+        self::assertSame(Type::Str, $token->type);
+        self::assertSame('Hello', $token->lexeme);
+        self::assertSame(0, $token->offset);
+    }
+
+    public function testLiteralStringKeepsBalancedNestedParentheses(): void
+    {
+        $lexer = new Lexer('(a(b)c)]');
+
+        self::assertSame('a(b)c', $lexer->next()->lexeme);
+        self::assertSame(Type::ArrClose, $lexer->next()->type);
+    }
+
+    public function testLiteralStringMayContainDelimitersAndWhitespace(): void
+    {
+        self::assertSame('a <</b> %c', new Lexer('(a <</b> %c)')->next()->lexeme);
+    }
+
+    #[DataProvider('stringEscapeProvider')]
+    public function testLiteralStringDecodesEscapes(string $input, string $expected): void
+    {
+        self::assertSame($expected, new Lexer($input)->next()->lexeme);
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function stringEscapeProvider(): iterable
+    {
+        yield 'named escapes' => ['(\\n\\r\\t\\b\\f)', "\n\r\t\x08\x0C"];
+        yield 'escaped parentheses' => ['(\\(a\\))', '(a)'];
+        yield 'escaped backslash' => ['(a\\\\b)', 'a\\b'];
+        yield 'unbalanced escaped paren does not close' => ['(a\\)b)', 'a)b'];
+        yield 'three octal digits' => ['(\\101)', 'A'];
+        yield 'two octal digits' => ['(\\41)', '!'];
+        yield 'one octal digit followed by non digit' => ['(\\7x)', "\x07x"];
+        yield 'octal stops after three digits' => ['(\\0053)', "\x053"];
+        yield 'octal overflow wraps to low byte' => ['(\\777)', "\xFF"];
+        yield 'backslash lf continuation' => ["(a\\\nb)", 'ab'];
+        yield 'backslash cr continuation' => ["(a\\\rb)", 'ab'];
+        yield 'backslash crlf continuation' => ["(a\\\r\nb)", 'ab'];
+        yield 'unknown escape drops backslash' => ['(\\q)', 'q'];
+    }
+
+    #[DataProvider('stringEolProvider')]
+    public function testLiteralStringNormalizesUnescapedEndOfLine(string $input): void
+    {
+        self::assertSame("a\nb", new Lexer($input)->next()->lexeme);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function stringEolProvider(): iterable
+    {
+        yield 'lf' => ["(a\nb)"];
+        yield 'cr' => ["(a\rb)"];
+        yield 'crlf' => ["(a\r\nb)"];
+    }
+
+    public function testLiteralStringPreservesRawBytes(): void
+    {
+        self::assertSame("\xFE\xFF\x00", new Lexer("(\xFE\xFF\x00)")->next()->lexeme);
+    }
+
+    public function testUnterminatedLiteralStringThrows(): void
+    {
+        $this->expectException(LexerException::class);
+        $this->expectExceptionMessage('offset 3');
+
+        $lexer = new Lexer('ab (cd');
+        $lexer->next();
+        $lexer->next();
+    }
+
+    public function testUnterminatedLiteralStringEndingInBackslashThrows(): void
+    {
+        $this->expectException(LexerException::class);
+
+        new Lexer('(ab\\')->next();
     }
 }

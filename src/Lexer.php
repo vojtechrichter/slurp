@@ -89,10 +89,13 @@ final class Lexer
             return new Token(Type::Str, $this->scanLiteralString($start), $start);
         }
 
-        // TODO: hex strings
-        $this->offset++;
+        if ($byte === '<') {
+            $this->offset++;
 
-        return new Token(Type::Keyword, $byte, $start);
+            return new Token(Type::HexStr, $this->scanHexString($start), $start);
+        }
+
+        throw new LexerException(sprintf('Unexpected byte "%s" at offset %d', $byte, $start));
     }
 
     private function scanRegularRun(): string
@@ -132,6 +135,27 @@ final class Lexer
         }
 
         throw new LexerException(sprintf('Unterminated literal string starting at offset %d', $start));
+    }
+
+    private function scanHexString(int $start): string
+    {
+        $digits = '';
+
+        while (!$this->isAtEnd()) {
+            $byte = $this->content[$this->offset++];
+
+            if ($byte === '>') {
+                return pack('H*', strlen($digits) % 2 === 0 ? $digits : $digits . '0');
+            }
+
+            if (ctype_xdigit($byte)) {
+                $digits .= $byte;
+            } elseif (!CharacterClass::isWhitespace($byte)) {
+                throw new LexerException(sprintf('Invalid byte in hex string at offset %d', $this->offset - 1));
+            }
+        }
+
+        throw new LexerException(sprintf('Unterminated hex string starting at offset %d', $start));
     }
 
     private function scanStringEscape(): string

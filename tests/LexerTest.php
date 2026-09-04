@@ -319,4 +319,67 @@ final class LexerTest extends TestCase
 
         new Lexer('(ab\\')->next();
     }
+
+    public function testScansHexString(): void
+    {
+        $token = new Lexer('<48656C6C6F> ')->next();
+
+        self::assertSame(Type::HexStr, $token->type);
+        self::assertSame('Hello', $token->lexeme);
+        self::assertSame(0, $token->offset);
+    }
+
+    public function testHexStringAcceptsLowercaseAndWhitespace(): void
+    {
+        self::assertSame('Hi', new Lexer("<48\n 6 9\t>")->next()->lexeme);
+    }
+
+    public function testHexStringPadsOddDigitCountWithZero(): void
+    {
+        self::assertSame("\x41\x20", new Lexer('<412>')->next()->lexeme);
+    }
+
+    public function testEmptyHexString(): void
+    {
+        $lexer = new Lexer('<>]');
+
+        self::assertSame('', $lexer->next()->lexeme);
+        self::assertSame(Type::ArrClose, $lexer->next()->type);
+    }
+
+    public function testHexStringRejectsNonHexByte(): void
+    {
+        $this->expectException(LexerException::class);
+        $this->expectExceptionMessage('offset 2');
+
+        new Lexer('<4G>')->next();
+    }
+
+    public function testUnterminatedHexStringThrows(): void
+    {
+        $this->expectException(LexerException::class);
+        $this->expectExceptionMessage('offset 0');
+
+        new Lexer('<41')->next();
+    }
+
+    #[DataProvider('unexpectedByteProvider')]
+    public function testUnexpectedDelimiterThrows(string $input): void
+    {
+        $this->expectException(LexerException::class);
+        $this->expectExceptionMessage('offset 2');
+
+        $lexer = new Lexer($input);
+        $lexer->next();
+        $lexer->next();
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function unexpectedByteProvider(): iterable
+    {
+        yield 'closing paren' => ['x )'];
+        yield 'lone greater than' => ['x >'];
+    }
 }
